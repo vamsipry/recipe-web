@@ -1,0 +1,147 @@
+service: recipe-companion-web
+frameworkVersion: '4'   # or remove this line and rely on your installed v4
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: ${opt:region, 'us-east-1'}
+  stage: ${opt:stage, 'dev'}
+
+  # HTTP API with a Cognito JWT authorizer
+  httpApi:
+    cors: true
+    authorizers:
+      userPoolAuth:
+        type: jwt
+        identitySource: $request.header.Authorization
+        # Build the Cognito issuer URL using CF substitution so it resolves at deploy-time
+        issuerUrl:
+          Fn::Sub: "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
+        audience:
+          - Ref: UserPoolClient
+
+functions:
+  listRecipes:
+    handler: src/handlers/recipes.list
+    events:
+      - httpApi:
+          path: /recipes
+          method: get
+          authorizer: userPoolAuth
+
+  createRecipe:
+    handler: src/handlers/recipes.create
+    events:
+      - httpApi:
+          path: /recipes
+          method: post
+          authorizer: userPoolAuth
+
+  getRecipe:
+    handler: src/handlers/recipes.get
+    events:
+      - httpApi:
+          path: "/recipes/{id}"
+          method: get
+          authorizer: userPoolAuth
+
+  updateRecipe:
+    handler: src/handlers/recipes.update
+    events:
+      - httpApi:
+          path: "/recipes/{id}"
+          method: put
+          authorizer: userPoolAuth
+
+  deleteRecipe:
+    handler: src/handlers/recipes.remove
+    events:
+      - httpApi:
+          path: "/recipes/{id}"
+          method: delete
+          authorizer: userPoolAuth
+
+  importFromUrl:
+    handler: src/handlers/importFromUrl.handler
+    timeout: 30
+    events:
+      - httpApi:
+          path: /recipes/import
+          method: post
+          authorizer: userPoolAuth
+
+  getUploadUrl:
+    handler: src/handlers/uploadUrl.handler
+    events:
+      - httpApi:
+          path: /images/upload-url
+          method: post
+          authorizer: userPoolAuth
+
+resources:
+  Resources:
+    RecipesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: userId
+            KeyType: HASH
+          - AttributeName: id
+            KeyType: RANGE
+        TableName: ${self:service}-${self:provider.stage}-recipes
+
+    ImagesBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName:
+          Fn::Sub: "${self:service}-${self:provider.stage}-${AWS::AccountId}-images"
+        CorsConfiguration:
+          CorsRules:
+            - AllowedMethods: [GET, PUT]
+              AllowedOrigins: ['*']
+              AllowedHeaders: ['*']
+              ExposedHeaders: ['ETag']
+
+    UserPool:
+      Type: AWS::Cognito::UserPool
+      Properties:
+        UserPoolName:
+          Fn::Sub: "${self:service}-${self:provider.stage}-userpool"
+        UsernameAttributes: [email]
+        AutoVerifiedAttributes: [email]
+
+    UserPoolClient:
+      Type: AWS::Cognito::UserPoolClient
+      Properties:
+        ClientName: web-client
+        UserPoolId:
+          Ref: UserPool
+        GenerateSecret: true
+        AllowedOAuthFlowsUserPoolClient: true
+        SupportedIdentityProviders: [COGNITO]
+        AllowedOAuthFlows: [code]
+        AllowedOAuthScopes: ['openid', 'email', 'profile']
+        CallbackURLs:
+          - "http://localhost:3000/api/auth/callback/cognito"
+        LogoutURLs:
+          - "http://localhost:3000"
+
+  Outputs:
+    ApiUrl:
+      Value:
+        Fn::Sub: "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+    UserPoolId:
+      Value:
+        Ref: UserPool
+    UserPoolClientId:
+      Value:
+        Ref: UserPoolClient
+    ImagesBucketName:
+      Value:
+        Ref: ImagesBucket
