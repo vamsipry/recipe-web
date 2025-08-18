@@ -8,7 +8,7 @@ RUN npm install
 FROM node:18-alpine AS builder
 WORKDIR /app/web
 COPY --from=deps /app/web/node_modules ./node_modules
-COPY web/. .
+COPY web/ .
 RUN npm run build
 
 # Production image
