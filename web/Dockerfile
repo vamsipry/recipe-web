@@ -1,19 +1,19 @@
 # Install dependencies only when needed
 FROM node:18-alpine AS deps
-WORKDIR /app
+WORKDIR /app/web/
 COPY package.json package-lock.json* ./
 RUN npm install
 
 # Rebuild the source code only when needed
 FROM node:18-alpine AS builder
-WORKDIR /app
+WORKDIR /app/web/
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 
 # Production image
 FROM node:18-alpine AS runner
-WORKDIR /app
+WORKDIR /app/web/
 
 ENV NODE_ENV production
 
